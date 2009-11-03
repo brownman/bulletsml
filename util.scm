@@ -1,6 +1,9 @@
 
 (define-constant PI 3.1415926535)
 
+; not equal
+(define (/= a b) (not (= a b)))
+
 ; anaphoric-if
 (define-macro (aif test-form then-form . else-form)
   `(let ((it ,test-form))
@@ -19,9 +22,51 @@
                     (aand ,@(cdr args))
                     #f))))
 
-;; �x���烉�W�A����
+; gensym した結果をシンボルに割り当て
+(define-macro (w/uniq names . body)
+  (if (pair? names)
+      `(let (map (lambda (n) (list n '(gensym)))
+                 names)
+         ,@body)
+    `(let1 ,names (gensym)
+       ,@body)))
+
+; if に成功したらバインド
+(define-macro (iflet var val then . rest)
+  (w/uniq g
+    `(let1 ,g ,val
+       (if ,g
+           (let1 ,var ,g
+             ,then)
+         ,@rest))))
+
+; 値による case
+(define-macro (vcase val . rest)
+  (w/uniq g
+    `(let1 ,g ,val
+       (cond ,@(map (lambda (exp)
+                      (if (eq? (car exp) 'else)
+                          exp
+                        `((= ,(car exp) ,g) ,@(cdr exp))))
+                    rest)))))
+
+;; リストlsから要素xを取り除く
+;; xは１個しかないと仮定
+(define (remove-from-list! x ls)
+  (let recur ((cur ls)
+              (pre #f))
+    (cond ((null? cur) ls)
+          ((eq? (car cur) x)
+           (if pre
+               (begin
+                 (set-cdr! pre (cdr cur))
+                 ls)
+             (cdr ls)))
+          (else (recur (cdr cur) cur)))))
+
+;; 度からラジアンへ
 (define (deg->rad deg) (* deg (/ PI 180)))
-;; ���W�A������x��
+;; ラジアンから度へ
 (define (rad->deg rad) (* rad (/ 180 PI)))
 
 ;; atan2

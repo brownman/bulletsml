@@ -1,44 +1,51 @@
-;; ƒRƒ‹[ƒ`ƒ“
-;; ‹¦’²Œ^
+;; ã‚³ãƒ«ãƒ¼ãƒãƒ³
+;; å”èª¿å‹
 
+; ãƒ•ã‚¡ã‚¤ãƒ«å†…ã§ä½¿ç”¨ï¼šå‘¼ã³å‡ºã—ãŸã‚³ãƒ«ãƒ¼ãƒãƒ³ã‹ã‚‰ã®æˆ»ã‚Šå…ˆã®ç¶™ç¶šã‚’ä¿æŒ
 (define %cc% 'EMPTY-COROUTINE)
 
-;;;; ŠO•”‚©‚çŒÄ‚Ño‚·ŠÖ”
+;;;; å¤–éƒ¨ã‹ã‚‰å‘¼ã³å‡ºã™é–¢æ•°
 
-;; ƒRƒ‹[ƒ`ƒ“‚Ì¶¬
+;; ã‚³ãƒ«ãƒ¼ãƒãƒ³ã®ç”Ÿæˆ
 (define (make-coroutine f . args)
-  (cons 1           ; stat
-        (lambda ()  ; procedure or continuation
-          (apply f args)
-          (term-coroutine!))))
+  (let1 proc (lambda ()
+               (apply f args)
+               (term-coroutine!))
+    (cons 1        ; stat or wait counter
+          proc)))  ; procedure or continuation
 
-;; ƒRƒ‹[ƒ`ƒ“‚ª¶‚«‚Ä‚é‚©H
+;; ã‚³ãƒ«ãƒ¼ãƒãƒ³ãŒç”Ÿãã¦ã‚‹ã‹ï¼Ÿ
 (define (coroutine-alive? co)
   (car co))
 
-;; ƒRƒ‹[ƒ`ƒ“‹N“®
-(define (wake-coroutine! co)
-  (and (coroutine-alive? co)
-       (begin
-         (dec! (car co))  ; decrement wait count
-         (when (<= (car co) 0)  ; time to wake up
-           (let ((prev-cc %cc%))
-             (receive (c n) (call/cc
-                             (lambda (cc)
-                               (set! %cc% cc)
-                               ((cdr co))))  ; call coroutine
-               (set! %cc% prev-cc)
-               (set-car! co n)
-               (set-cdr! co c))))
-         #t)))
+;; ã‚³ãƒ«ãƒ¼ãƒãƒ³èµ·å‹•
+(define (wake-coroutine co)
+  (define (decrement-wait-counter co) (dec! (car co)))
+  (define (time-to-wake-up co) (<= (car co) 0))
+  (define (call-co co) (apply (cdr co) '()))
 
-;;;; ƒRƒ‹[ƒ`ƒ““à•”‚©‚çŒÄ‚Ño‚·ŠÖ”
+  (if (coroutine-alive? co)
+      (begin
+        (decrement-wait-counter co)
+        (when (time-to-wake-up co)
+          (let ((prev-cc %cc%))
+            (receive (next-co wait) (call/cc
+                                     (lambda (cc)
+                                       (set! %cc% cc)
+                                       (call-co co)))
+              (set! %cc% prev-cc)
+              (set-car! co wait)
+              (set-cdr! co next-co))))
+        #t)
+    #f))
 
-;; ©E‚·‚é
+;;;; ã‚³ãƒ«ãƒ¼ãƒãƒ³å†…éƒ¨ã‹ã‚‰å‘¼ã³å‡ºã™ãŸã‚ã®é–¢æ•°
+
+;; è‡ªæ®ºã™ã‚‹
 (define (term-coroutine!)
   (%cc% #f #f))
 
-;; ˆê’†’f
+;; ä¸€æ™‚ä¸­æ–­
 (define (yield . params)
   (let ((n (cond ((null? params) 1)
                  (else (car params)))))

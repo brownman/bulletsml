@@ -9,21 +9,21 @@
 
 (define rand random-real)
 
-;; XYç¿ïWÇ©ÇÁäpìxÇï‘Ç∑
-;; ÉâÉWÉAÉìÇ∂Ç·Ç»Ç≠Çƒìx
-;; è„(Y-)ÇÇOÇ∆ÇµÇƒéûåvâÒÇË
+;; XYÂ∫ßÊ®ô„Åã„ÇâËßíÂ∫¶„ÇíËøî„Åô
+;; „É©„Ç∏„Ç¢„É≥„Åò„ÇÉ„Å™„Åè„Å¶Â∫¶
+;; ‰∏ä(Y-)„ÇíÔºê„Å®„Åó„Å¶ÊôÇË®àÂõû„Çä
 (define (get-angle dx dy)
   (rad->deg (atan2 dx (- dy))))
 
-;; å¸Ç´Ç∆ë¨Ç≥Ç©ÇÁë¨ìxÇåvéZ
-;; å¸Ç´ÇÕìx
-;; è„ï˚å¸Ç™0Ç≈éûåvâÒÇË
+;; Âêë„Åç„Å®ÈÄü„Åï„Åã„ÇâÈÄüÂ∫¶„ÇíË®àÁÆó
+;; Âêë„Åç„ÅØÂ∫¶
+;; ‰∏äÊñπÂêë„Åå0„ÅßÊôÇË®àÂõû„Çä
 (define (calc-velocity deg speed)
   (let ((rad (deg->rad deg)))
     (values (* speed    (sin rad))
             (* speed (- (cos rad))))))
 
-;; äpìxÇÃê≥ãKâª (-180Å`+180Ç…é˚ÇﬂÇÈ)
+;; ËßíÂ∫¶„ÅÆÊ≠£Ë¶èÂåñ (-180ÔΩû+180„Å´Âèé„ÇÅ„Çã)
 (define (degree deg)
   (cond ((> deg 180)
          (- (fmod (+ deg 180) 360) 180))
@@ -31,18 +31,22 @@
          (+ (fmod (- deg 180) 360) 180))
         (else deg)))
 
-;; ï∂éöóÒÇ∆ÇµÇƒåãçá
+;; ÊñáÂ≠óÂàó„Å®„Åó„Å¶ÁµêÂêà
 (define (cat . args)
   (string-concatenate (map x->string args)))
 
-;; ÉcÉäÅ[ÇÃäeÉmÅ[ÉhÇïœä∑Ç∑ÇÈ
+;; ÁµêÂêà„Åó„Å¶„Ç∑„É≥„Éú„É´„ÇíËøî„Åô
+(define (catsym . args)
+  (string->symbol (apply cat args)))
+
+;; „ÉÑ„É™„Éº„ÅÆÂêÑ„Éé„Éº„Éâ„ÇíÂ§âÊèõ„Åô„Çã
 (define (replace-node s f)
   (cond ((pair? s)
          (cons (replace-node (car s) f)
                (replace-node (cdr s) f)))
         (else (f s))))
 
-;; ïœêî($...)ÇíuÇ´ä∑Ç¶ÇÈ
+;; Â§âÊï∞ $n „Çí (ref $args (- n 1)) „Å´ÁΩÆ„ÅçÊèõ„Åà„Çã
 (define (replace-variable s)
   (define (conv x)
     (cond ((#/^\$(\d+)$/ (symbol->string x)) =>
@@ -54,50 +58,68 @@
                   (cond ((symbol? x) (conv x))
                         (else x)))))
 
+;; „Éô„ÇØ„Çø„Åß‰øùÊåÅ„Åô„Çã„É°„É≥„Éê„Å∏„ÅÆ„Ç¢„ÇØ„Çª„Çµ„ÇíÂÆöÁæ©
+(define-macro (define-accessors class . members)
+  (let ((indices (iota (length members))))
+    `(begin
+       ,@(map (lambda (member idx)
+                `(define (,(catsym class '- member) self)
+                   (vector-ref self ,idx)))
+              members indices)
+       ,@(map (lambda (member idx)
+                `(define (,(catsym class '- member '-set!) self v)
+                   (vector-set! self ,idx v)
+                   v))
+              members indices))))
+
 ;;==========================
-;; BulletML É^ÉOèàóù
+;; BulletML „Çø„Ç∞Âá¶ÁêÜ
 
-(define (action-name sym) (string->symbol (cat "%action-" sym)))
-(define (bullet-name sym) (string->symbol (cat "%bullet-" sym)))
-(define (fire-name sym)   (string->symbol (cat "%fire-" sym)))
+(define (action-name sym) (catsym "%action-" sym))
+(define (bullet-name sym) (catsym "%bullet-" sym))
+(define (fire-name sym)   (catsym "%fire-"   sym))
 
-;; <bulletml> É^ÉO
+;; <bulletml> „Çø„Ç∞
 (define-macro (bulletml . params)
-  (let ((body (get-elem-body params)))
-    (let ((actions (listup-nodes body 'action))
-          (bullets (listup-nodes body 'bullet))
-          (fires (listup-nodes body 'fire)))
-      `(letrec (,@(map (lambda (action)
-                         `(,(action-name (get-property (cdr action) :label))
-                           (lambda (self . $args)
-                             ,action)))
-                       actions)
-                ,@(map (lambda (self)
-                         (let ((body (get-elem-body (cdr self))))
-                           (let ((speed (or (aand (find-node body 'speed)
-                                                  (cadr it))
-                                            1))
-                                 (actions (listup-nodes body
-                                                        (lambda (tag)
-                                                          (member tag '(action actionRef))))))
-                             `(,(bullet-name (get-property (cdr self) :label))
-                               (list ,speed
-                                     (lambda (self . $args)
-                                       ,@actions))))))
-                       bullets)
-                ,@(map (lambda (fire)
-                         `(,(fire-name (get-property (cdr fire) :label))
-                           (lambda (self . $args)
-                             ,fire)))
-                       fires))
-               ,(action-name 'top)))))
+  (define (def-actions actions)
+    (map (lambda (action)
+           `(,(action-name (get-property (cdr action) :label))
+             (lambda (self . $args)
+               ,action)))
+         actions))
+  (define (def-bullets bullets)
+    (map (lambda (self)
+           (let ((body (get-elem-body (cdr self))))
+             (let ((speed (or (aand (find-node body 'speed)
+                                    (cadr it))
+                              1))
+                   (actions (listup-nodes body
+                                          (lambda (tag)
+                                            (member tag '(action actionRef))))))
+               `(,(bullet-name (get-property (cdr self) :label))
+                 (list ,speed
+                       (lambda (self . $args)
+                         ,@actions))))))
+         bullets))
+  (define (def-fires fires)
+    (map (lambda (fire)
+           `(,(fire-name (get-property (cdr fire) :label))
+             (lambda (self . $args)
+               ,fire)))
+         fires))
 
-;; <action> É^ÉO
+  (let ((body (get-elem-body params)))
+    `(letrec (,@(def-actions (listup-nodes body 'action))
+              ,@(def-bullets (listup-nodes body 'bullet))
+              ,@(def-fires (listup-nodes body 'fire)))
+             ,(action-name 'top))))
+
+;; <action> „Çø„Ç∞
 (define-macro (action . params)
   (let ((body (get-elem-body params)))
     `(begin ,@body)))
 
-;; <actionRef> É^ÉO
+;; <actionRef> „Çø„Ç∞
 (define-macro (actionRef . params)
   (let ((body (get-elem-body params)))
     (let ((label (action-name (get-property params :label)))
@@ -106,7 +128,7 @@
                      (listup-nodes body 'param))))
       `(,label self ,@args))))
 
-;; <bullet> É^ÉO
+;; <bullet> „Çø„Ç∞
 (define-macro (bullet . params)
   (let ((body (get-elem-body params)))
     (let ((speed (or (find-node body 'speed)
@@ -119,7 +141,7 @@
                                    (member tag '(action actionRef))))))
       `(begin ,@actions))))
 
-;; <repeat> É^ÉO
+;; <repeat> „Çø„Ç∞
 (define-macro (repeat . params)
   (let ((root `(repeat ,@params)))
     (let ((times (or (aand (find-node params 'times)
@@ -130,7 +152,7 @@
       `(dotimes (,i ,times)
          ,@actions))))
 
-;; <fire> É^ÉO
+;; <fire> „Çø„Ç∞
 (define-macro (fire . params)
   (let* ((body (get-elem-body params))
          (dir (find-node body 'direction)))
@@ -153,7 +175,7 @@
                                (car ,bullet-info))))))
           (else (error "fire: no bullet node")))))
 
-;; <fireRef> É^ÉO
+;; <fireRef> „Çø„Ç∞
 (define-macro (fireRef . params)
   (let ((body (get-elem-body params)))
     (let ((label (fire-name (get-property params :label)))
@@ -162,12 +184,12 @@
                      (listup-nodes body 'param))))
       `(,label self ,@args))))
 
-;; <wait> É^ÉO
+;; <wait> „Çø„Ç∞
 (define-macro (wait . params)
   (let ((n (replace-variable (car params))))
     `(yield ,n)))
 
-;; <direction> É^ÉO
+;; <direction> „Çø„Ç∞
 (define-macro (direction . params)
   (let ((type (cond ((get-property params :type))
                     (else 'aim)))
@@ -178,7 +200,7 @@
       ((relative) `(direction-relative self ,val))
       (else `(direction-aim self ,val)))))
 
-;; <speed> É^ÉO
+;; <speed> „Çø„Ç∞
 (define-macro (speed . params)
   (let ((val (car (get-elem-body params))))
     val))
@@ -196,15 +218,15 @@
   (print "**** direction-relative not implemented yet")
   (emitter-direction-absolute self param))
 
-;; <vanish> É^ÉO
+;; <vanish> „Çø„Ç∞
 (define-macro (vanish)
   `(vanish-bullet self))
 
-;; <term> É^ÉO
+;; <term> „Çø„Ç∞
 (define-macro (term . params)
   (replace-variable (car params)))
 
-;; <changeDirection> É^ÉO
+;; <changeDirection> „Çø„Ç∞
 (define-macro (changeDirection . params)
   (let ((dir (find-node params 'direction))
         (term (find-node params 'term)))
@@ -212,7 +234,7 @@
                        ,dir
                        ,term)))
 
-;; <changeSpeed> É^ÉO
+;; <changeSpeed> „Çø„Ç∞
 (define-macro (changeSpeed . params)
   (let ((speed (find-node params 'speed))
         (term (find-node params 'term)))
@@ -220,7 +242,7 @@
                        ,speed
                        ,term)))
 
-;; <accel> É^ÉO
+;; <accel> „Çø„Ç∞
 (define-macro (accel . params)
   (let ((body (get-elem-body params)))
     (let ((horz (or (aand (find-node body 'horizontal)
@@ -239,9 +261,9 @@
 
 
 ;;==========================
-;; SML ä÷òA
+;; SML Èñ¢ÈÄ£
 
-;; É^ÉOÇóÒãìÇ∑ÇÈ
+;; „Çø„Ç∞„ÇíÂàóÊåô„Åô„Çã
 (define (listup-nodes nodes tag)
   (if (procedure? tag)
       (filter (lambda (node) (tag (car node)))
@@ -249,7 +271,7 @@
     (filter (lambda (node) (eq? (car node) tag))
             nodes)))
 
-;; É^ÉOÇ≈ÉmÅ[ÉhÇíTÇ∑
+;; „Çø„Ç∞„Åß„Éé„Éº„Éâ„ÇíÊé¢„Åô
 (define (find-node bml tag)
   (if (procedure? tag)
       (let recur ((ls bml))
@@ -263,14 +285,14 @@
             (else
              (recur (cdr ls)))))))
 
-;; ÉvÉçÉpÉeÉBÇÃéÊìæ
+;; „Éó„É≠„Éë„ÉÜ„Ç£„ÅÆÂèñÂæó
 (define (get-property belem key)
   (let1 r (assoc key (keylist->alist belem))
     (if r
         (cdr r)
       #f)))
 
-;; ÉGÉåÉÅÉìÉgÇÃÉLÅ[ÉèÅ[ÉhÉäÉXÉgÇalistÇ…ïœä∑ÇµÇƒéÊìæ
+;; „Ç®„É¨„É°„É≥„Éà„ÅÆ„Ç≠„Éº„ÉØ„Éº„Éâ„É™„Çπ„Éà„Çíalist„Å´Â§âÊèõ„Åó„Å¶ÂèñÂæó
 (define (keylist->alist belem)
   (let recur ((ls belem)
               (acc '()))
@@ -282,7 +304,7 @@
                         acc)))
           (else acc))))
 
-;; ÉGÉåÉÅÉìÉgÇÃñ{ëÃéÊìæ
+;; „Ç®„É¨„É°„É≥„Éà„ÅÆÊú¨‰ΩìÂèñÂæó
 (define (get-elem-body belem)
   (let recur ((ls belem))
     (cond ((null? ls) '())
@@ -293,7 +315,21 @@
 ;;==========================
 ;; bullet
 
-(define (make-bullet x y dir speed proc)
+(define-accessors bullet
+                  co
+                  x
+                  y
+                  dir
+                  game
+                  speed
+                  change-dir-term
+                  target-dir
+                  change-speed-term
+                  target-speed
+                  vx
+                  vy)
+
+(define (make-bullet game x y dir speed proc)
   (let ((changeDirTerm 0)
         (targetDir #f)
         (changeSpdTerm 0)
@@ -305,6 +341,7 @@
                 ,x
                 ,y
                 ,dir
+                ,game
                 ,speed
                 ,changeDirTerm
                 ,targetDir
@@ -313,129 +350,92 @@
                 ,vx
                 ,vy))))
         (let ((co (make-coroutine proc self)))
-          (vector-set! self 0 co))
+          (bullet-co-set! self co))
         self))))
 
-(define (bullet-x self)
-  (vector-ref self 1))
-
-(define (bullet-y self)
-  (vector-ref self 2))
-
 (define (update-bullet self)
-  (let (
-        ; ÉRÉãÅ[É`ÉìãNìÆ
-        (wake-coro (lambda ()
-                     (wake-coroutine! (vector-ref self 0))))
-        ; äpìxçXêV
-        (update-dir (lambda ()
-                      (if (> (vector-ref self 5) 0)
-                          (begin
-                            (vector-set! self 3
-                                         (+ (vector-ref self 3)
-                                            (/. (degree (- (vector-ref self 6)
-                                                           (vector-ref self 3)))
-                                                (vector-ref self 5))))
-                            (dec! (vector-ref self 5))
-                            #t)
-                        #f)))
-        ; ë¨Ç≥çXêV
-        (update-spd (lambda ()
-                      (if (> (vector-ref self 7) 0)
-                          (begin
-                            (vector-set! self 4
-                                         (+ (vector-ref self 4)
-                                            (/ (- (vector-ref self 8)
-                                                  (vector-ref self 4))
-                                               (vector-ref self 7))))
-                            (dec! (vector-ref self 7))
-                            #t)
-                        #f)))
-        ; ë¨ìxÇçXêVÇ∑ÇÈ
-        (update-velocity (lambda ()
-                           (receive (vx vy) (calc-velocity (vector-ref self 3) (vector-ref self 4))
-                             (vector-set! self  9 vx)
-                             (vector-set! self 10 vy))))
-        ; à⁄ìÆ
-        (move (lambda ()
-                (let ((vx (vector-ref self 9))
-                      (vy (vector-ref self 10)))
-                  (vector-set! self 1 (+ (bullet-x self) vx))
-                  (vector-set! self 2 (+ (bullet-y self) vy))))))
-    
-    (wake-coro)
-    (when (or (update-dir)
-              (update-spd))
-      (update-velocity))
-    (move)))
+  (define (wake-coro) (wake-coroutine (bullet-co self)))
+  (define (update-dir)
+    (and (> (bullet-change-dir-term self) 0)
+         (begin
+           (bullet-dir-set! self
+                            (+ (bullet-dir self)
+                               (/. (degree (- (bullet-target-dir self)
+                                              (bullet-dir self)))
+                                   (bullet-change-dir-term self))))
+           (bullet-change-dir-term-set! self (- (bullet-change-dir-term self) 1))
+           #t)))
+  (define (update-spd)
+    (and (> (bullet-change-speed-term self) 0)
+         (begin
+           (bullet-speed-set! self
+                              (+ (bullet-speed self)
+                                 (/ (- (bullet-target-speed self)
+                                       (bullet-speed self))
+                                    (bullet-change-speed-term self))))
+           (bullet-change-speed-term-set! self (- (bullet-change-speed-term self) 1))
+           #t)))
+  (define (update-velocity)
+    (receive (vx vy) (calc-velocity (bullet-dir self) (bullet-speed self))
+      (bullet-vx-set! self vx)
+      (bullet-vy-set! self vy)))
+  (define (move)
+    (let ((vx (bullet-vx self))
+          (vy (bullet-vy self)))
+      (bullet-x-set! self (+ (bullet-x self) vx))
+      (bullet-y-set! self (+ (bullet-y self) vy))))
+  
+  ; Êú¨‰Ωì
+  (wake-coro)
+  (when (or (update-dir)
+            (update-spd))
+    (update-velocity))
+  (move))
 
 (define (vanish-bullet self)
-  (vector-set! self 1 -100))  ; âÊñ äOÇ…îÚÇŒÇµÇƒè¡ÇµÇƒÇ‡ÇÁÇ§
+  (bullet-x-set! self -100))  ; ÁîªÈù¢Â§ñ„Å´È£õ„Å∞„Åó„Å¶Ê∂à„Åó„Å¶„ÇÇ„Çâ„ÅÜ
 
 (define (change-direction self dir term)
-  (vector-set! self 5 term)
-  (vector-set! self 6 dir))
+  (bullet-change-dir-term-set! self term)
+  (bullet-target-dir-set! self dir))
 
 (define (change-speed self dir term)
-  (vector-set! self 7 term)
-  (vector-set! self 8 dir))
+  (bullet-change-speed-term-set! self term)
+  (bullet-target-speed-set! self dir))
 
 (define (bullet-accel-set! self horz vert term)
   (print "**** bullet-accel-set! not implemented yet"))
 
-(define (render-bullet self sprite)
-  (blit sprite
-        (to-int (- (bullet-x self) 4))
-        (to-int (- (bullet-y self) 4))))
-
 ;;==========================
 ;; emitter
 
-(define (make-emitter game bml-proc)
-  (let ((x 150)
-        (y 50)
-        (dir 0))
-    (let ((self
-           (list->vector
-            `(()  ; co
-              ,x
-              ,y
-              ,dir
-              ,game))))
-      (let ((co (make-coroutine bml-proc self)))
-        (vector-set! self 0 co))
-      self)))
-
-(define (emitter-x self) (vector-ref self 1))
-(define (emitter-y self) (vector-ref self 2))
-
-(define (emitter-game self)
-  (vector-ref self 4))
-
-(define (emitter-fire-degree-set! self deg)
-  (let ((a (degree deg)))
-    (vector-set! self 3 a)
-    a))
+(define (make-emitter game x y bml-proc)
+  (make-bullet game x y 0 0 bml-proc))
 
 (define (emitter-direction-sequence self ofs)
-  (+ (vector-ref self 3)
+  (+ (bullet-dir self)
      ofs))
 
 (define (emitter-direction-aim self ofs)
-  (let* ((player (game-player (emitter-game self)))
-         (ang (get-angle (- (player-x player) (emitter-x self))
-                         (- (player-y player) (emitter-y self)))))
+  (let* ((player (game-player (bullet-game self)))
+         (ang (get-angle (- (player-x player) (bullet-x self))
+                         (- (player-y player) (bullet-y self)))))
     (+ ang ofs)))
 
 (define (emitter-direction-absolute self deg)
   deg)
 
 (define (update-emitter self)
-  (let ((co (vector-ref self 0)))
-    (wake-coroutine! co)))
+  (wake-coroutine (bullet-co self)))
 
 (define (fire-bullet self bproc dir speed)
+  (define (fire-degree-set! self deg)
+    (let ((a (degree deg)))
+      (bullet-dir-set! self a)
+      a))
+
   ;(print #`"** fire ,bproc ,dir ,speed")
-  (emitter-fire-degree-set! self dir)
-  (add-bullet (emitter-game self)
-              (make-bullet (emitter-x self) (emitter-y self) dir speed bproc)))
+  (let ((game (bullet-game self)))
+    (fire-degree-set! self dir)
+    (add-bullet game
+                (make-bullet game (bullet-x self) (bullet-y self) dir speed bproc))))

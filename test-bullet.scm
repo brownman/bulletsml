@@ -1,36 +1,24 @@
+;; BulletSML „Çí‰Ωø„Å£„Åü„ÉÜ„Çπ„Éà
 
-(require "./bulletsml")
+(use sdl)
+(load "./bulletsml")
 
-(define-constant ScreenWidth 300)
+(define-constant ScreenWidth  300)
 (define-constant ScreenHeight 400)
 
-;; âÊñ äOÅH
+;; ÁîªÈù¢Â§ñÔºü
 (define (out-of-screen? x y size)
   (or (< x (- size))
       (> x (+ ScreenWidth size))
       (< y (- size))
       (> y (+ ScreenHeight size))))
 
-;; ÉäÉXÉglsÇ©ÇÁóvëfxÇéÊÇËèúÇ≠
-;; xÇÕÇPå¬ÇµÇ©Ç»Ç¢Ç∆âºíË
-(define (remove-from-list! x ls)
-  (let recur ((cur ls)
-              (pre #f))
-    (cond ((null? cur) ls)
-          ((eq? (car cur) x)
-           (if pre
-               (begin
-                 (set-cdr! pre (cdr cur))
-                 ls)
-             (cdr ls)))
-          (else (recur (cdr cur) cur)))))
-
 ;;==========================
 ;; player
 
 (define (make-player)
   (let ((x (/ ScreenWidth 2))
-        (y (- ScreenHeight (/ ScreenHeight 4))))
+        (y (- ScreenHeight (/ ScreenHeight 8))))
     (list->vector
      `(,x
        ,y))))
@@ -83,10 +71,15 @@
     (when (> (player-y self) (- ScreenHeight size/2))
       (vector-set! self 1 (- ScreenHeight size/2)))))
 
-(define (render-player self sprite)
-  (blit sprite
-        (to-int (- (player-x self) 8))
-        (to-int (- (player-y self) 8))))
+(define (render-player player dst-surface sprite)
+  (blit dst-surface sprite
+        (to-int (- (player-x player) 8))
+        (to-int (- (player-y player) 8))))
+
+(define (render-bullet bullet dst-surface sprite)
+  (blit dst-surface sprite
+        (to-int (- (bullet-x bullet) 4))
+        (to-int (- (bullet-y bullet) 4))))
 
 ;;==========================
 ;; game
@@ -118,27 +111,32 @@
                (remove-from-list! bullet (vector-ref game 2))))
 
 (define (update-game game)
-  (update-player (game-player game))
-  (dolist (emitter (vector-ref game 1))
-    (update-emitter emitter))
-  ; íeÇÃçXêV
-  (let recur ((ls (vector-ref game 2)))
-    (unless (null? ls)
-      (let ((bullet (car ls)))
-        (update-bullet bullet)
-        (when (out-of-screen? (bullet-x bullet)
-                              (bullet-y bullet)
-                              16)
-          (remove-bullet game bullet))
-        (recur (cdr ls))))))
+  (define (update-emitters)
+    (dolist (emitter (vector-ref game 1))
+      (update-emitter emitter)))
+  (define (update-bullets)
+    (let recur ((ls  (vector-ref game 2)))
+      (when (not (null? ls))
+        (let ((bullet (car ls))
+              (next (cdr ls)))
+          (update-bullet bullet)
+          (when (out-of-screen? (bullet-x bullet)
+                                (bullet-y bullet)
+                                16)
+            (remove-bullet game bullet))
+          (recur next)))))
 
-(define (render-game game shot-sprite player-sprite)
-  (render-player (game-player game) player-sprite)
+  (update-player (game-player game))
+  (update-emitters)
+  (update-bullets))
+
+(define (render-game game dst-surface shot-sprite player-sprite)
+  (render-player (game-player game) dst-surface player-sprite)
   (dolist (bullet (vector-ref game 2))
-    (render-bullet bullet shot-sprite)))
+    (render-bullet bullet dst-surface shot-sprite)))
 
 (define (rank)
-  1)
+  0.5)
 
 
 ;;==========================
@@ -334,13 +332,13 @@
 
 (define (test)
   (let ((game (make-game)))
-    (add-emitter game (make-emitter game
+    (add-emitter game (make-emitter game 150 50
                                     ;bullet2))
                                     ;bullet3))
                                     ;hibachi_1))
                                     bulletsmorph2))
                                     ;ketui_lt_1boss_bit))
-    (dotimes (i 40)
+    (dotimes (i 100)
       (print `(===== ,i =====))
       (update-game game))
     ;(write/ss game) (newline)
