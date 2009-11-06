@@ -46,12 +46,18 @@
                (replace-node (cdr s) f)))
         (else (f s))))
 
-;; 変数 $n を (ref $args (- n 1)) に置き換える
+;; 引数を参照
+(define (get-bullet-arg args idx)
+  (cond ((null? args) 0)
+        ((zero? idx) (car args))
+        (else (get-bullet-arg (cdr args) (- idx 1)))))
+
+;; 変数 $n を (get-bullet-arg $args (- n 1)) に置き換える
 (define (replace-variable s)
   (define (conv x)
     (cond ((#/^\$(\d+)$/ (symbol->string x)) =>
            (lambda (m)
-             `(ref $args ,(- (read-from-string (m 1)) 1))))
+             `(get-bullet-arg $args ,(- (read-from-string (m 1)) 1))))
           (else x)))
   (replace-node s
                 (lambda (x)
@@ -90,16 +96,16 @@
   (define (def-bullets bullets)
     (map (lambda (self)
            (let ((body (get-elem-body (cdr self))))
-             (let ((speed (or (aand (find-node body 'speed)
-                                    (cadr it))
-                              1))
+             (let ((speed (find-node body 'speed))
+                   (dir (find-node body 'direction))
                    (actions (listup-nodes body
                                           (lambda (tag)
                                             (member tag '(action actionRef))))))
                `(,(bullet-name (get-property (cdr self) :label))
-                 (list ,speed
-                       (lambda (self . $args)
-                         ,@actions))))))
+                 (lambda (self . $args)
+                   ,@(if speed `((bullet-speed-set! self ,speed) (update-bullet-velocity self)) '())
+                   ,@(if dir `((bullet-dir-set! self ,dir) (update-bullet-velocity self)) '())
+                   ,@actions)))))
          bullets))
   (define (def-fires fires)
     (map (lambda (fire)
@@ -107,12 +113,35 @@
              (lambda (self . $args)
                ,fire)))
          fires))
-
+  (define (top-action actions)
+    (define (get-action-label action)
+      (get-property (cdr action) :label))
+    ;; 白い弾幕くんのデータの中には、"top"でなく"top1", "top2", ... のものがある
+    (let ((tops (filter (lambda (action)
+                          (#/^top(\d+)?$/ (symbol->string (get-action-label action))))
+                        actions)))
+      (cond ((null? tops) `(lambda args 'nothing)) ;top がない：なにもしない
+            ((single? tops) (action-name (get-action-label (car tops))))
+            (else  ; top.* がいくつかある：すべて作成
+             (let ((dir 0)
+                   (speed 0))
+               `(lambda (self)
+                  (let ((bullets (list ,@(map (lambda (action)
+                                                (let ((proc `(lambda (self)
+                                                               (,(action-name (get-action-label action)) self)
+                                                               (vanish))))
+                                                  `(fire-bullet self ,proc ,dir ,speed)))
+                                              tops))))
+                    ;; 全ての子供が死ぬまで監視
+                    (while (any bullet-live? bullets)
+                      (wait 1)))))))))
+  
   (let ((body (get-elem-body params)))
-    `(letrec (,@(def-actions (listup-nodes body 'action))
-              ,@(def-bullets (listup-nodes body 'bullet))
-              ,@(def-fires (listup-nodes body 'fire)))
-             ,(action-name 'top))))
+    (let ((actions (listup-nodes body 'action)))
+      `(letrec (,@(def-actions actions)
+                ,@(def-bullets (listup-nodes body 'bullet))
+                ,@(def-fires (listup-nodes body 'fire)))
+               ,(top-action actions)))))
 
 ;; <action> タグ
 (define-macro (action . params)
@@ -155,7 +184,10 @@
 ;; <fire> タグ
 (define-macro (fire . params)
   (let* ((body (get-elem-body params))
-         (dir (find-node body 'direction)))
+         (dir (or (find-node body 'direction)
+                  `(direction :type aim 0)))
+         (speed (or (find-node body 'speed)
+                    1)))
     (cond ((find-node body 'bullet) =>
            (lambda (node)
              (let ((speed (or (find-node body 'speed)
@@ -170,9 +202,9 @@
                                 (listup-nodes body 'param))))
                  `(fire-bullet self
                                (lambda (self)
-                                 ((cadr ,bullet-info) self ,@args))
+                                 (,bullet-info self ,@args))
                                ,dir
-                               (car ,bullet-info))))))
+                               ,speed)))))
           (else (error "fire: no bullet node")))))
 
 ;; <fireRef> タグ
@@ -200,23 +232,39 @@
       ((relative) `(direction-relative self ,val))
       (else `(direction-aim self ,val)))))
 
-;; <speed> タグ
-(define-macro (speed . params)
-  (let ((val (car (get-elem-body params))))
-    val))
-
 (define (direction-sequence self param)
-  (emitter-direction-sequence self param))
+  (+ (bullet-fire-dir self) param))
 
 (define (direction-absolute self param)
-  (emitter-direction-absolute self param))
+  param)
 
 (define (direction-aim self param)
-  (emitter-direction-aim self param))
+  (let* ((player (game-player (bullet-game self)))
+         (ang (get-angle (- (player-x player) (bullet-x self))
+                         (- (player-y player) (bullet-y self)))))
+    (+ ang param)))
 
 (define (direction-relative self param)
-  (print "**** direction-relative not implemented yet")
-  (emitter-direction-absolute self param))
+  (+ (bullet-dir self) param))
+
+;; <speed> タグ
+(define-macro (speed . params)
+  (let ((type (cond ((get-property params :type))
+                    (else 'absolute)))
+        (val (replace-variable (car (get-elem-body params)))))
+    (case type
+      ((relative) `(speed-relative self ,val))
+      ((sequence) `(speed-sequence self ,val))
+      (else `(speed-absolute self ,val)))))
+
+(define (speed-absolute self param)
+  param)
+
+(define (speed-relative self param)
+  (+ (bullet-speed self) param))
+
+(define (speed-sequence self param)
+  (+ (bullet-fire-speed self) param))
 
 ;; <vanish> タグ
 (define-macro (vanish)
@@ -326,8 +374,11 @@
                   target-dir
                   change-speed-term
                   target-speed
+                  fire-dir
+                  fire-speed
                   vx
-                  vy)
+                  vy
+                  live?)
 
 (define (make-bullet game x y dir speed proc)
   (let ((changeDirTerm 0)
@@ -347,11 +398,19 @@
                 ,targetDir
                 ,changeSpdTerm
                 ,targetSpd
+                ,dir
+                ,speed
                 ,vx
-                ,vy))))
+                ,vy
+                #t))))
         (let ((co (make-coroutine proc self)))
           (bullet-co-set! self co))
         self))))
+
+(define (update-bullet-velocity self)
+  (receive (vx vy) (calc-velocity (bullet-dir self) (bullet-speed self))
+    (bullet-vx-set! self vx)
+    (bullet-vy-set! self vy)))
 
 (define (update-bullet self)
   (define (wake-coro) (wake-coroutine (bullet-co self)))
@@ -375,10 +434,6 @@
                                     (bullet-change-speed-term self))))
            (bullet-change-speed-term-set! self (- (bullet-change-speed-term self) 1))
            #t)))
-  (define (update-velocity)
-    (receive (vx vy) (calc-velocity (bullet-dir self) (bullet-speed self))
-      (bullet-vx-set! self vx)
-      (bullet-vy-set! self vy)))
   (define (move)
     (let ((vx (bullet-vx self))
           (vy (bullet-vy self)))
@@ -389,11 +444,14 @@
   (wake-coro)
   (when (or (update-dir)
             (update-spd))
-    (update-velocity))
+    (update-bullet-velocity self))
   (move))
 
 (define (vanish-bullet self)
   (bullet-x-set! self -100))  ; 画面外に飛ばして消してもらう
+
+(define (delete-bullet self) ; 本当に死ぬとき
+  (bullet-live?-set! self #f))
 
 (define (change-direction self dir term)
   (bullet-change-dir-term-set! self term)
@@ -406,36 +464,11 @@
 (define (bullet-accel-set! self horz vert term)
   (print "**** bullet-accel-set! not implemented yet"))
 
-;;==========================
-;; emitter
-
-(define (make-emitter game x y bml-proc)
-  (make-bullet game x y 0 0 bml-proc))
-
-(define (emitter-direction-sequence self ofs)
-  (+ (bullet-dir self)
-     ofs))
-
-(define (emitter-direction-aim self ofs)
-  (let* ((player (game-player (bullet-game self)))
-         (ang (get-angle (- (player-x player) (bullet-x self))
-                         (- (player-y player) (bullet-y self)))))
-    (+ ang ofs)))
-
-(define (emitter-direction-absolute self deg)
-  deg)
-
-(define (update-emitter self)
-  (wake-coroutine (bullet-co self)))
-
 (define (fire-bullet self bproc dir speed)
-  (define (fire-degree-set! self deg)
-    (let ((a (degree deg)))
-      (bullet-dir-set! self a)
-      a))
-
   ;(print #`"** fire ,bproc ,dir ,speed")
-  (let ((game (bullet-game self)))
-    (fire-degree-set! self dir)
-    (add-bullet game
-                (make-bullet game (bullet-x self) (bullet-y self) dir speed bproc))))
+  (let* ((game (bullet-game self))
+         (bl (make-bullet game (bullet-x self) (bullet-y self) dir speed bproc)))
+    (add-bullet game bl)
+    (bullet-fire-dir-set! self dir)
+    (bullet-fire-speed-set! self speed)
+    bl))

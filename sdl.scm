@@ -12,6 +12,7 @@
           SDL_GetVideoInfo
           SDL_SetVideoMode
           SDL_LoadBMP
+          SDL_SetColorKey
           SDL_DisplayFormat
           SDL_FreeSurface
           SDL_FillRect
@@ -29,6 +30,7 @@
           SDL_DOUBLEBUF
           SDL_FULLSCREEN
           SDL_RESIZABLE
+          SDL_SRCCOLORKEY
           
           ; event
           SDL_KEYDOWN
@@ -69,13 +71,7 @@
   (let1 surface (SDL_LoadBMP fn)
     (if surface
         (begin
-#|
-          ; カラーキーの設定
-          (when (slot-ref surface 'pixels)
-            (SDL_SetColorKey surface
-                             SDL_SRCCOLORKEY
-                             (SDL_Surface-pixels-ref surface 0)))
-|#
+          (SDL_SetColorKey surface SDL_SRCCOLORKEY 0)
           (let1 converted (SDL_DisplayFormat surface)
             (if converted
                 (begin

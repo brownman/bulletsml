@@ -3,8 +3,8 @@
 (use sdl)
 (use srfi-13)  ; string-for-each
 
-(define (init-font font-fn fontw fonth)
-  (list (load-image font-fn) fontw fonth))
+(define (init-font font-surface fontw fonth)
+  (list font-surface fontw fonth))
 
 (define (put-char-sub dst-surface fontsurface x y c fontw fonth)
   (let ((i (- (char->integer c) 32)))

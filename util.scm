@@ -1,8 +1,17 @@
 
 (define-constant PI 3.1415926535)
 
+(define-macro (define-once name . body)
+  `(unless (global-variable-bound? (current-module) ',name)
+     (define ,name ,@body)))
+
 ; not equal
 (define (/= a b) (not (= a b)))
+
+; length=1?
+(define (single? ls)
+  (and (not (null? ls))
+       (null? (cdr ls))))
 
 ; anaphoric-if
 (define-macro (aif test-form then-form . else-form)
@@ -64,6 +73,12 @@
              (cdr ls)))
           (else (recur (cdr cur) cur)))))
 
+;; 値の範囲制限
+(define (clamp val min max)
+  (cond ((< val min) min)
+        ((> val max) max)
+        (else val)))
+
 ;; 度からラジアンへ
 (define (deg->rad deg) (* deg (/ PI 180)))
 ;; ラジアンから度へ
@@ -84,5 +99,6 @@
         (- PI (calc (- x) y))
       (- (calc (- x) (- y)) PI))))
 
+;; 整数へ変換
 (define (to-int x)
   (inexact->exact (floor x)))

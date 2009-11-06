@@ -28,14 +28,14 @@
       (begin
         (decrement-wait-counter co)
         (when (time-to-wake-up co)
-          (let ((prev-cc %cc%))
-            (receive (next-co wait) (call/cc
+          (let ((temp-cc %cc%))
+            (receive (next-cc wait) (call/cc
                                      (lambda (cc)
                                        (set! %cc% cc)
                                        (call-co co)))
-              (set! %cc% prev-cc)
+              (set! %cc% temp-cc)
               (set-car! co wait)
-              (set-cdr! co next-co))))
+              (set-cdr! co next-cc))))
         #t)
     #f))
 

@@ -5,6 +5,7 @@
 
 (define-constant ScreenWidth  300)
 (define-constant ScreenHeight 400)
+(define-once *rank* 0)
 
 ;; 画面外？
 (define (out-of-screen? x y size)
@@ -14,20 +15,34 @@
       (> y (+ ScreenHeight size))))
 
 ;;==========================
+;; bullet
+
+(define (render-bullet bullet dst-surface)
+  (blit dst-surface (get-image 'bullet)
+        (to-int (window-scale (- (bullet-x bullet) 4)))
+        (to-int (window-scale (- (bullet-y bullet) 4)))))
+
+;;==========================
 ;; player
 
-(define (make-player)
-  (let ((x (/ ScreenWidth 2))
-        (y (- ScreenHeight (/ ScreenHeight 8))))
+(define (make-player x y)
+  (let ((damaged #f))
     (list->vector
      `(,x
-       ,y))))
+       ,y
+       ,damaged))))
 
 (define (player-x player)
   (vector-ref player 0))
 
 (define (player-y player)
   (vector-ref player 1))
+
+(define (player-damaged? player)
+  (vector-ref player 2))
+
+(define (player-set-damage player)
+  (vector-set! player 2 (* 2 60)))
 
 (define MoveTbl
   (let* ((D 2)
@@ -53,69 +68,92 @@
      (vector  0  0))))
 
 (define (update-player self)
-  (let ((size/2 8))
-    (let* ((idx (+ (if (key-pressed? SDLK_LEFT)  1 0)
-                   (if (key-pressed? SDLK_RIGHT) 2 0)
-                   (if (key-pressed? SDLK_UP)    4 0)
-                   (if (key-pressed? SDLK_DOWN)  8 0)))
-           (tbl (vector-ref MoveTbl idx)))
-      (inc! (vector-ref self 0) (vector-ref tbl 0))
-      (inc! (vector-ref self 1) (vector-ref tbl 1)))
-    
-    (when (< (player-x self) size/2)
-      (vector-set! self 0 size/2))
-    (when (> (player-x self) (- ScreenWidth size/2))
-      (vector-set! self 0 (- ScreenWidth size/2)))
-    (when (< (player-y self) size/2)
-      (vector-set! self 1 size/2))
-    (when (> (player-y self) (- ScreenHeight size/2))
-      (vector-set! self 1 (- ScreenHeight size/2)))))
+  (define (move)
+    (let* ((size/2 8)
+           (xmin size/2)
+           (ymin size/2)
+           (xmax (- ScreenWidth size/2))
+           (ymax (- ScreenHeight size/2)))
+      (let* ((idx (+ (if (key-pressed? SDLK_LEFT)  1 0)
+                     (if (key-pressed? SDLK_RIGHT) 2 0)
+                     (if (key-pressed? SDLK_UP)    4 0)
+                     (if (key-pressed? SDLK_DOWN)  8 0)))
+             (tbl (vector-ref MoveTbl idx)))
+        (let ((x (clamp (+ (vector-ref self 0) (vector-ref tbl 0))
+                        xmin xmax))
+              (y (clamp (+ (vector-ref self 1) (vector-ref tbl 1))
+                        ymin ymax)))
+          (vector-set! self 0 x)
+          (vector-set! self 1 y)))))
+  (define (decrement-damage-count)
+    (when (vector-ref self 2)
+      (dec! (vector-ref self 2))
+      (when (zero? (vector-ref self 2))
+        (vector-set! self 2 #f))))
+  
+  (decrement-damage-count)
+  (move))
 
-(define (render-player player dst-surface sprite)
-  (blit dst-surface sprite
-        (to-int (- (player-x player) 8))
-        (to-int (- (player-y player) 8))))
-
-(define (render-bullet bullet dst-surface sprite)
-  (blit dst-surface sprite
-        (to-int (- (bullet-x bullet) 4))
-        (to-int (- (bullet-y bullet) 4))))
+(define (render-player self dst-surface)
+  (let ((damaged (vector-ref self 2)))
+    (when (or (not damaged)
+              (< (modulo damaged 8) 4))
+      (blit dst-surface (get-image 'player)
+            (to-int (window-scale (- (player-x self) 8)))
+            (to-int (window-scale (- (player-y self) 8)))))))
 
 ;;==========================
 ;; game
 
 (define (make-game)
-  (let ((emitters '())
-        (bullets '())
-        (player (make-player)))
+  (let ((bullets '())
+        (player (make-player (/ ScreenWidth 2)
+                             (* ScreenHeight 7/8))))
     (list->vector
      `(,player
-       ,emitters
-       ,bullets))))
+       ,bullets
+       0))))
 
 (define (game-player game)
   (vector-ref game 0))
 
-(define (add-emitter game emitter)
-  (vector-set! game 1
-               (cons emitter
-                     (vector-ref game 1))))
+(define (game-bullet-count game)
+  (vector-ref game 2))
 
 (define (add-bullet game bullet)
-  (vector-set! game 2
+  (vector-set! game 1
                (cons bullet
-                     (vector-ref game 2))))
+                     (vector-ref game 1)))
+  (inc! (vector-ref game 2)))
 
 (define (remove-bullet game bullet)
-  (vector-set! game 2
-               (remove-from-list! bullet (vector-ref game 2))))
+  (vector-set! game 1
+               (remove-from-list! bullet (vector-ref game 1)))
+  (dec! (vector-ref game 2))
+  (delete-bullet bullet))
+
+(define (update-rank)
+  (let ((rank (cond ((key-pressed? #\q) (- *rank* 1))
+                    ((key-pressed? #\w) (+ *rank* 1))
+                    (else *rank*))))
+    (set! *rank* (clamp rank 0 100))))
+
+(define (rect-overlap? x0 y0 w0 h0 x1 y1 w1 h1)
+  (and (< x0 (+ x1 w1))
+       (< y0 (+ y1 h1))
+       (< x1 (+ x0 w0))
+       (< y1 (+ y0 h0))))
+
+(define (check-player-bullets-collision player bullets)
+  (when (not (player-damaged? player))
+    (dolist (bullet bullets)
+      (when (rect-overlap? (player-x player) (player-y player) 1 1
+                           (- (bullet-x bullet) 3) (- (bullet-y bullet) 3) 6 6)
+        (player-set-damage player)))))
 
 (define (update-game game)
-  (define (update-emitters)
-    (dolist (emitter (vector-ref game 1))
-      (update-emitter emitter)))
   (define (update-bullets)
-    (let recur ((ls  (vector-ref game 2)))
+    (let recur ((ls  (vector-ref game 1)))
       (when (not (null? ls))
         (let ((bullet (car ls))
               (next (cdr ls)))
@@ -126,222 +164,18 @@
             (remove-bullet game bullet))
           (recur next)))))
 
+  (update-rank)
+  
   (update-player (game-player game))
-  (update-emitters)
-  (update-bullets))
+  (update-bullets)
+  (check-player-bullets-collision (game-player game)
+                                  (vector-ref game 1))
+  )
 
-(define (render-game game dst-surface shot-sprite player-sprite)
-  (render-player (game-player game) dst-surface player-sprite)
-  (dolist (bullet (vector-ref game 2))
-    (render-bullet bullet dst-surface shot-sprite)))
+(define (render-game game dst-surface)
+  (render-player (game-player game) dst-surface)
+  (dolist (bullet (vector-ref game 1))
+    (render-bullet bullet dst-surface)))
 
 (define (rank)
-  0.5)
-
-
-;;==========================
-
-(define bullet2
-  (bulletml
-   (action :label top
-           (repeat
-            (times 3)
-            (action
-             (fire
-              (direction :type sequence
-                         23)
-              (bullet))
-             (wait 1))))))
-
-(define bullet3
-  (bulletml
-   (action :label top
-           (repeat
-            (times 10)
-            (action
-             (fire
-              (direction :type sequence
-                         23)
-              (bulletRef :label straight))
-             (wait 1))))
-   (bullet :label straight
-           (action
-            (wait (+ 20 (* (rand) 50)))
-            (changeDirection
-             (direction :type absolute
-                        180)
-             (term 10))))))
-
-(define hibachi_1
-  (bulletml
-   (action :label top
-           (repeat
-            (times (+ 10 (* (rank) 70)))
-            (action
-             (fire
-              (direction :type aim (+ (* (rand) 30) -74 (* (rank) 2)))
-              (speed (+ 0.5 (* (rank) 2)))
-              (bullet))
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (fireRef :label n)
-             (wait (- 14 (* (rank) 10))))))
-   (fire :label n
-         (direction :type sequence
-                    (+ (* (rand) 2) 7 (- (* (rank) 2))))
-         (speed (+ 0.5 (* (rank) 2)))
-         (bullet))))
-
-(define bulletsmorph2
-  (bulletml :type vertical
-            (action :label top
-                    (repeat
-                     (times 8)
-                     (action
-                      (actionRef :label center
-                                 (param (* 90 (rand)))
-                                 (param 1))
-                      (wait 12)
-                      (actionRef :label center
-                                 (param (* 90 (rand)))
-                                 (param -1))
-                      (wait 12)
-                      (actionRef :label center
-                                 (param (* 30 (rand)))
-                                 (param 1))
-                      (wait 12)
-                      (actionRef :label center
-                                 (param (* 30 (rand)))
-                                 (param -1))
-                      (wait 12)))
-                    (wait 150))
-            (action :label center
-                    (fire
-                     (direction :type absolute
-                                (* 360 (rand)))
-                     (bulletRef :label circle
-                                (param $1)
-                                (param $2)))
-                    (repeat
-                     (times (- (+ 4 (* 8 (rank))) 1))
-                     (action
-                      (fire
-                       (direction :type sequence
-                                  (/ 360 (+ 4 (* 8 (rank)))))
-                       (bulletRef :label circle
-                                  (param $1)
-                                  (param $2))))))
-            (bullet :label circle
-                    (speed 1.3)
-                    (action
-                     (wait 20)
-                     (changeDirection
-                      (direction :type absolute
-                                 (+ 180 (* $1 $2)))
-                      (term 1))
-                     (wait (- 125 $1))
-                     (fire
-                      (direction :type aim 0)
-                      (bulletRef :label red))
-                     (vanish)))
-            (bullet :label red
-                    (speed 0.1)
-                    (action
-                     (changeSpeed
-                      (speed 4.0)
-                      (term 300))))))
-
-(define ketui_lt_1boss_bit
-(bulletml :type vertical
- (bullet :label Dummy
-  (action
-   (vanish)))
- (action :label XWay
-  (actionRef :label XWayFan
-   (param $1)
-   (param $2)
-   (param 0)))
- (action :label XWayFan
-  (repeat
-   (times (- $1 1))
-   (action
-    (fire
-     (direction :type sequence $2)
-     (speed :type sequence $3)
-     (bullet)))))
- (action :label |3way|
-  (repeat
-   (times 2)
-   (action
-    (wait 30)
-    (fire
-     (direction :type aim -3)
-     (speed 1.4)
-     (bullet))
-    (actionRef :label XWay
-     (param 3)
-     (param 2)))))
- (bullet :label bit
-  (action
-   (repeat
-    (times 3)
-    (action
-     (accel
-      (horizontal :type absolute 0)
-      (vertical :type absolute 1)
-      (term 60))
-     (actionRef :label |3way|)
-     (accel
-      (horizontal :type absolute -2)
-      (vertical :type absolute 0)
-      (term 60))
-     (actionRef :label |3way|)
-     (accel
-      (horizontal :type absolute 0)
-      (vertical :type absolute -1)
-      (term 60))
-     (actionRef :label |3way|)
-     (accel
-      (horizontal :type absolute 2)
-      (vertical :type absolute 0)
-      (term 60))
-     (actionRef :label |3way|)))))
- (action :label top
-  (repeat
-   (times (+ 4 (* (rank) 6)))
-   (action
-    (fire
-     (direction :type absolute 90)
-     (speed 2)
-     (bulletRef :label bit))
-    (wait (/ 245 (+ 4 (* (rank) 6))))))
-  (wait 550))))
-
-(define (test)
-  (let ((game (make-game)))
-    (add-emitter game (make-emitter game 150 50
-                                    ;bullet2))
-                                    ;bullet3))
-                                    ;hibachi_1))
-                                    bulletsmorph2))
-                                    ;ketui_lt_1boss_bit))
-    (dotimes (i 100)
-      (print `(===== ,i =====))
-      (update-game game))
-    ;(write/ss game) (newline)
-    ))
-
-;(define (main args) (test))
+  (* *rank* 0.01))
