@@ -47,7 +47,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define (window-scale x) (* x 2))
+(define (window-scale x) (* x 1))
 
 (define-constant FRAME-TICKS (/ 1000.0 60))
 (define-constant ScreenWidth 300)
@@ -159,7 +159,6 @@
       (let ((game (make-game)))
         (add-bullet game (make-bullet game
                                       150 50 0 0
-                                      ;hibachi_1))
                                       (make-emitter bullets)))
         (while (proc-events)
           (when (key-pressed? SDLK_ESCAPE)
@@ -201,7 +200,7 @@
                     (if (eof-object? text)
                         #f
                       (cons fn
-                            (eval text interaction-environment)))))
+                            (eval text (interaction-environment))))))
                 (glob "bullet/*.scm")))))
 
 ;; エントリ

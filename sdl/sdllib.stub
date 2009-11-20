@@ -1,0 +1,146 @@
+;;-*-Scheme-*-
+;;;
+;;; sdllib.stub
+;;;
+
+"
+#include \"sdl.h\"
+#include <SDL/SDL.h>
+#include \"gauche/class.h\"
+
+#undef SCM_CLASS_DEFAULT_CPL
+#define SCM_CLASS_DEFAULT_CPL NULL
+
+typedef struct ScmSDL_RectRec {
+	SCM_HEADER;
+	SDL_Rect rc;
+} ScmSDL_Rect;
+
+SCM_CLASS_DECL(Scm_SDL_RectClass);
+#define SCM_CLASS_SDL_RECT (&Scm_SDL_RectClass)
+#define SCM_SDL_RECT(obj) ((ScmSDL_Rect*)(obj))
+#define SCM_SDL_RECTP(obj) (SCM_XTYPEP(obj, SCM_CLASS_SDL_RECT))
+
+ScmObj alloc_SDL_Rect(ScmClass *klass, ScmObj initargs)
+{
+    ScmSDL_Rect *obj = SCM_ALLOCATE(ScmSDL_Rect, klass);
+    SCM_SET_CLASS(obj, klass);
+    memset(&obj->rc, 0x00, sizeof(obj->rc));
+    return SCM_OBJ(obj);
+}
+
+typedef struct ScmSDL_Event {
+	SCM_HEADER;
+	SDL_Event event;
+} ScmSDL_Event;
+
+SCM_CLASS_DECL(Scm_SDL_EventClass);
+#define SCM_CLASS_SDL_EVENT (&Scm_SDL_EventClass)
+#define SCM_SDL_EVENT(obj) ((ScmSDL_Event*)(obj))
+#define SCM_SDL_EVENTP(obj) (SCM_XTYPEP(obj, SCM_CLASS_SDL_EVENT))
+
+ScmObj alloc_SDL_Event(ScmClass *klass, ScmObj initargs)
+{
+    ScmSDL_Event *obj = SCM_ALLOCATE(ScmSDL_Event, klass);
+    SCM_SET_CLASS(obj, klass);
+    return SCM_OBJ(obj);
+}
+
+typedef struct ScmSDL_VideoInfo {
+	SCM_HEADER;
+	const SDL_VideoInfo* info;
+} ScmSDL_VideoInfo;
+
+SCM_CLASS_DECL(Scm_SDL_VideoInfoClass);
+#define SCM_CLASS_SDL_VIDEOINFO (&Scm_SDL_VideoInfoClass)
+#define SCM_SDL_VIDEOINFO(obj) ((ScmSDL_VideoInfo*)(obj))
+#define SCM_SDL_VIDEOINFOP(obj) (SCM_XTYPEP(obj, SCM_CLASS_SDL_VIDEOINFO))
+"
+
+(define-cclass <SDL_Rect> "ScmSDL_Rect*" "Scm_SDL_RectClass"
+  ()
+  ((x :type <short> :setter "if (!SCM_INTP(value)) Scm_Error(\"short required, but got %S\", value);\nobj->rc.x = (short)SCM_INT_VALUE(value);" :getter "return SCM_MAKE_INT(obj->rc.x);")
+   (y :type <short> :setter "if (!SCM_INTP(value)) Scm_Error(\"short required, but got %S\", value);\nobj->rc.y = (short)SCM_INT_VALUE(value);" :getter "return SCM_MAKE_INT(obj->rc.y);")
+   (w :type <short> :setter "if (!SCM_INTP(value)) Scm_Error(\"short required, but got %S\", value);\nobj->rc.w = (short)SCM_INT_VALUE(value);" :getter "return SCM_MAKE_INT(obj->rc.w);")
+   (h :type <short> :setter "if (!SCM_INTP(value)) Scm_Error(\"short required, but got %S\", value);\nobj->rc.h = (short)SCM_INT_VALUE(value);" :getter "return SCM_MAKE_INT(obj->rc.h);"))
+  (allocator (c "alloc_SDL_Rect")))
+
+(define-cclass <SDL_Event> "ScmSDL_Event*" "Scm_SDL_EventClass"
+  ()
+  ((type :type <char> :setter "" :getter "return SCM_MAKE_INT(obj->event.type);")
+   (key.keysym.sym :type <int> :setter "" :getter "return SCM_MAKE_INT(obj->event.key.keysym.sym);")
+   (resize.w :type <int> :setter "" :getter "return SCM_MAKE_INT(obj->event.resize.w);")
+   (resize.h :type <int> :setter "" :getter "return SCM_MAKE_INT(obj->event.resize.h);")
+   )
+  (allocator (c "alloc_SDL_Event")))
+
+(define-cclass <SDL_VideoInfo> "ScmSDL_VideoInfo*" "Scm_SDL_VideoInfoClass"
+  ()
+  ((vfmt->BitsPerPixel :type <char> :setter "" :getter "return SCM_MAKE_INT(obj->info->vfmt->BitsPerPixel);")
+   ))
+
+(define-type <SDL_SurfacePtr> "SDL_Surface*")
+
+(define-cproc SDL_Init (flags::<int>)
+  (expr <int> "SDL_Init(flags)"))
+
+(define-cproc SDL_Quit ()
+  (body <void> "SDL_Quit();"))
+
+(define-cproc SDL_WM_SetCaption (caption::<string> icon)
+  (body <void> "SDL_WM_SetCaption(Scm_GetStringConst(caption), NULL);"))
+
+(define-cproc SDL_GetVideoInfo ()
+  "const SDL_VideoInfo* info = SDL_GetVideoInfo();
+    ScmSDL_VideoInfo *obj = SCM_ALLOCATE(ScmSDL_VideoInfo, &Scm_SDL_VideoInfoClass);
+    SCM_SET_CLASS(obj, &Scm_SDL_VideoInfoClass);
+    obj->info = info;
+    return SCM_OBJ(obj);")
+
+(define-cproc SDL_SetVideoMode (width::<int> height::<int> bpp::<int> flags::<int>)
+  "SDL_Surface* screen = SDL_SetVideoMode(width, height, bpp, flags);
+   SCM_RETURN(screen != NULL ? SCM_SDL_SURFACEPTR_BOX(screen) : SCM_FALSE);")
+
+(define-cproc SDL_LoadBMP (fn::<string>)
+  "SDL_Surface* surface = SDL_LoadBMP(Scm_GetStringConst(fn));
+   SCM_RETURN(surface != NULL ? SCM_SDL_SURFACEPTR_BOX(surface) : SCM_FALSE);")
+
+(define-cproc SDL_SetColorKey (surface::<SDL_SurfacePtr> flag::<int> key::<int>)
+  (expr <int> "SDL_SetColorKey(surface, flag, key)"))
+
+(define-cproc SDL_DisplayFormat (surface::<SDL_SurfacePtr>)
+  "SDL_Surface* converted = SDL_DisplayFormat(surface);
+   SCM_RETURN(converted != NULL ? SCM_SDL_SURFACEPTR_BOX(converted) : SCM_FALSE);")
+
+(define-cproc SDL_FreeSurface (surface::<SDL_SurfacePtr>)
+  (body <void> "SDL_FreeSurface(surface);"))
+
+(define-cproc SDL_FillRect (dst::<SDL_SurfacePtr> dstrect_scm color::<int>)
+  "SDL_Rect* dstrect;
+   if (SCM_NULLP(dstrect_scm)) dstrect = NULL;
+   else if (SCM_SDL_RECTP(dstrect_scm)) dstrect = &SCM_SDL_RECT(dstrect_scm)->rc;
+   else Scm_Error(\"<SDL_Rect> required, but got %S\", dstrect_scm);"
+  (expr <int> "SDL_FillRect(dst, dstrect, color)"))
+
+(define-cproc SDL_BlitSurface (src::<SDL_SurfacePtr> srcrect_scm dst::<SDL_SurfacePtr> dstrect::<SDL_Rect>)
+  "SDL_Rect *srcrect;
+   if (SCM_NULLP(srcrect_scm)) srcrect = NULL;
+   else if (SCM_SDL_RECTP(srcrect_scm)) srcrect = &SCM_SDL_RECT(srcrect_scm)->rc;
+   else Scm_Error(\"<SDL_Rect> required, but got %S\", srcrect_scm);"
+  (expr <int> "SDL_BlitSurface(src, srcrect, dst, &dstrect->rc)"))
+
+(define-cproc SDL_Flip (surface::<SDL_SurfacePtr>)
+  (expr <int> "SDL_Flip(surface)"))
+
+(define-cproc SDL_GetTicks ()
+  (expr <int> "SDL_GetTicks()"))
+
+(define-cproc SDL_Delay (ms::<int>)
+  (body <void> "SDL_Delay(ms);"))
+
+(define-cproc SDL_PollEvent (event::<SDL_Event>)
+  "SCM_RETURN(SDL_PollEvent(&event->event) ? SCM_TRUE : SCM_FALSE);")
+
+;; Local variables:
+;; mode: scheme
+;; end:

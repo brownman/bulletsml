@@ -5,7 +5,7 @@
 
 (define-constant ScreenWidth  300)
 (define-constant ScreenHeight 400)
-(define-once *rank* 0)
+(define-once *rank* 100)
 
 ;; 画面外？
 (define (out-of-screen? x y size)
